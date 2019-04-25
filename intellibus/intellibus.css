@@ -1,0 +1,84 @@
+figure, .table-container {
+	display: inline-block;
+	background-color: black;
+}
+
+figcaption:first-child::after {
+	content: ':';
+}
+
+figcaption {
+	text-align: left;
+	color: #aa00aa;
+}
+
+figcaption b {
+	color: #ff55ff;
+}
+
+div.figure-row {
+	text-align: center;
+}
+
+div.figure-row figure {
+	display: inline-block;
+}
+
+td {
+	text-align: center;
+	background-color: #0000aa;
+	color: white;
+}
+
+.bit-change-hl {
+	background-color: #5555ff;
+}
+
+.not-present-hl {
+	background-color: black;
+}
+
+.sync-bit-1m td {
+	color: #55ffff;
+}
+
+.sync-bit-1s td {
+	color: #55ff55;
+}
+
+.sync-bit-2m td {
+	color: #ffff55;
+}
+
+.sync-bit-2s td {
+	color: #ff55ff;
+}
+
+table.packet td:last-child:not(:only-child) {
+	text-align: left;
+}
+
+th {
+	background-color: #aaaaaa;
+	color: black;
+}
+
+thead td {
+	background-color: #555555;
+	text-align: center;
+}
+
+table.packet thead td {
+	background-color: #00aa00;
+	text-align: center;
+}
+
+table.sync-example td {
+	min-width: 3em;
+}
+
+aside {
+	background-color: #555555;
+	color: white;
+	padding: 8px;
+}

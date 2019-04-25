@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<meta name="description" content="Reverse-engineering Honeywell's IntelliBus protocol, as used by the BHS-4000 alarm system">
+	<title>IntelliBus Reverse Engineering</title>
+	<link rel="stylesheet" href="/styles/simple.css">
+	<link rel="stylesheet" href="intellibus.css">
+</head><body>
+	<header>
+		<h1>BHS-4000/IntelliBus Reverse Engineering</h1>
+	</header><main>
+		<p>BHS-4000 is a burglar/fire alarm system manufactured by Honeywell for the old Brinks Home Security. It was, to my knowledge, the last model they sold, and one of the most common, before they rebranded to Broadview and got bought by ADT. (As a side note, I appreciate how ADT has been a lot less hostile to DIYers, not to mention the <a href="https://brinkshome.com/" rel="nofollow">new Brinks</a> actively encourages it.)</p>
+		<p>I used to have this system installed in my home, and I guess I still do, but I just have it installed in my bedroom now, to mess around with. One thing I've been experimenting with lately is the system's data bus, that all of the keypads and other peripherals use to communicate with the alarm control panel. It uses a proprietary protocol called IntelliBus, for which I haven't been able to find any documentation online, but despite that I've figured out a lot about it.</p>
+
+		<h2>Physical Layer</h2>
+		<p>The first thing to know about IntelliBus is that it runs on an <a href="https://en.wikipedia.org/wiki/RS-485">RS-485</a> connection at 38,400 baud <abbr title="8 data bits, no parity, 1 stop bit">8N1</abbr>. The more observant among you may find this somewhat questionable, as the terminals for the data bus are labeled "DATA" and "CLK", and RS-485 is asynchronous, meaning it doesn't use a clock line. As it turns out, the labeling on the terminals is inaccurate; I'm not sure why it's labeled that way. But the truth is, the DATA and CLK terminals are actually the two complementary data lines as specified by RS-485.</p>
+		<p>Data is sent in distinct packets, and each packet is both introduced and followed by a <abbr title="Record Separator">RS</abbr> (0x1E) control character. Interestingly, they chose 0x7D ('}') as the escape character, followed by the byte (in practice, either 0x1E or 0x7D) XORed with 0x20. In other words, a literal 1E is encoded in a packet as "7D 3E", and a literal 7D is encoded as "7D 5D".</p>
+		At first I thought 0x7D, being a printable character, was an odd choice, and wondered why they didn't use one of the control characters designed for that purpose, like 0x10 (<abbr title="Data Link Escape">DLE</abbr>) or 0x1B (<abbr title="Escape">ESC</abbr>). But in a protocol that rarely transmits ASCII text, using a printable character isn't really an issue, and those lower bytes are likely more commonly used anyway.</p>
+
+		<h2>Packet Structure</h2>
+		<p>Now on to the actual content of the packets. There are three distinct formats of packets I've seen. The most common appear to be synchronization packets, one type that's sent from the panel to another device, and another type sent in the other direction. Here is what those packets look like:</p>
+		<aside>Note: The following packets include the 1E bytes at the beginning and end for illustrative purposes. Future examples will not include these bytes. In addition, 1E and 7D bytes will be listed literally, instead of in their escaped forms.</aside>
+		<div class="figure-row">
+			<figure>
+				<figcaption>Structure of a synchronization packet sent <b>by</b> the panel (henceforth <b>"sync ping"</b>)</figcaption>
+				<table class="packet">
+					<thead>
+						<tr><td colspan="5">1E 03 80 21 10 6A 1E</td></tr>
+						<tr><th>Bytes</th><th>Hex</th><th>Bin</th><th>Dec</th><th>Explanation</th></tr>
+					</thead><tbody>
+						<tr><td>1E</td><td>1E</td><td>00011110</td><td>30</td><td>Start of packet</td></tr>
+						<tr><td rowspan="2">03 80</td><td rowspan="2">8003</td><td>1</td><td>1</td><td>Master sync flag</td></tr>
+						<tr><td>000000000000011</td><td>3</td><td>Device address</td></tr>
+						<tr><td>21</td><td>21</td><td>00100001</td><td>33</td><td>Lower byte of active broadcast address</td></tr>
+						<tr><td>10 6A</td><td>6A10</td><td>0110101000010000</td><td>27152</td><td>CRC-16/MCRF4XX checksum of preceding bytes, not including the 1E</td></tr>
+						<tr><td>1E</td><td>1E</td><td>00011110</td><td>30</td><td>End of packet</td></tr>
+					</tbody>
+				</table>
+			</figure>
+			<figure>
+				<figcaption>Structure of a synchronization packet sent <b>to</b> the panel (henceforth <b>"sync reply"</b>)</figcaption>
+				<table class="packet">
+					<thead>
+						<tr><td colspan="5">1E 03 00 D0 DA 1E</td></tr>
+						<tr><th>Bytes</th><th>Hex</th><th>Bin</th><th>Dec</th><th>Explanation</th></tr>
+					</thead><tbody>
+						<tr><td>1E</td><td>1E</td><td>00011110</td><td>30</td><td>Start of packet</td></tr>
+						<tr><td rowspan="2">03 00</td><td rowspan="2">0003</td><td>0</td><td>0</td><td>Slave sync flag</td></tr>
+						<tr><td>000000000000011</td><td>3</td><td>Device address</td></tr>
+						<tr><td>D0 DA</td><td>DAD0</td><td>1101000011011010</td><td>56016</td><td>CRC-16/MCRF4XX checksum of preceding bytes, not including the 1E</td></tr>
+						<tr><td>1E</td><td>1E</td><td>00011110</td><td>30</td><td>End of packet</td></tr>
+					</tbody>
+				</table>
+			</figure>
+		</div>
+		<p>Sync ping packets (left) are transmitted from the panel to every device it knows about, several times per second. Sync reply packets (right) are transmitted the other way, generally (if not always) in response to the former.</p>
+		<figure style="float:right">
+			<figcaption>Structure of a "message" packet</figcaption>
+			<table class="packet">
+				<thead>
+					<tr><td colspan="5">1E 01 00 00 00 04 0D 00 DA 07 00 00 00 00 3F 00 30 00 00 28 25 1E</td></tr>
+					<tr><th>Bytes</th><th>Hex</th><th>Bin</th><th>Dec</th><th>Explanation</th></tr>
+				</thead><tbody>
+					<tr><td>1E</td><td>1E</td><td>00011110</td><td>30</td><td>Start of packet</td></tr>
+					<tr><td rowspan="2">01 00</td><td rowspan="2">0001</td><td>0</td><td>0</td><td>Slave sync flag</td></tr>
+					<tr><td>000000000000001</td><td>1</td><td>Destination device address</td></tr>
+					<tr><td rowspan="2">00 00</td><td rowspan="2">0000</td><td>0</td><td>0</td><td>Master sync flag</td></tr>
+					<tr><td>000000000000000</td><td>0</td><td>Source device address</td></tr>
+					<tr><td>04</td><td>04</td><td>00000100</td><td>4</td><td>Always 04 as far as I can tell</td></tr>
+					<tr><td>0D 00</td><td>000D</td><td>0000000000001101</td><td>13</td><td>Packet length (starting at next byte, ending after CRC)</td></tr>
+					<tr><td>DA 07</td><td>07DA</td><td>0000011111011010</td><td>2010</td><td>Message/command ID</td></tr>
+					<tr><td colspan="4">...</td><td>Parameter data (varies in meaning)</td></tr>
+					<tr><td>1E</td><td>1E</td><td>00011110</td><td>30</td><td>End of packet</td></tr>
+				</tbody>
+			</table>
+		</figure>
+		<p>While these packets are by far the most commonly transmitted, they don't actually <em>do</em> anything but synchronize flow control between the devices, and let the panel know a device is connected. It's the third, more complex type of packet that's actually responsible for communication between the devices. The example to the right is a packet sent from the panel to a keypad. The message/command ID, as you probably guessed, is what determines what the packet will do. In this case, it's set to 0x7DA, which means "set display on Premium Keypad". The bytes that follow mean different things for each command, and some commands (such as 0xBBC, "learn devices") don't even have any following bytes besides the CRC and the terminating 1E.</p>
+		<p>For message 0x7DA, the first byte in this section specifies the "account" ID associated with the packet, which is comparable to the "partition" function on panels like the Ademco Vista 20p. The following bytes are a bitfield, where each bit maps to an individual element on the Premium Keypad's LCD. This one was sent after activating the "Alarm Memory" function, so while I haven't tested it, I'm assuming this one will turn on the "Alarm Memory" indicator, and display a digit in the 7-segment display. (The 7-segment display is actually rendered on the panel, meaning this packet describes the specific segments to light up rather than just specifying a digit.)</p>
+		<p>One thing that's important to note: when a packet has a destination address in the range 0x7000-0x707F, it is treated as a <b>broadcast packet</b>. That is, it's intended for all devices that can use it, not just a specific one. As an example, sending message 0x7E0 to a keypad will cause it to make sound, but sending it as a broadcast will cause <em>all</em> keypads to make sound, as long as they are on the account specified in the message. Message 0x7DA, shown above, is usually sent as a broadcast, to update the display on all the keypads with a single packet.</p>
+
+		<aside style="clear:right">
+			<h2>Synchronization (SECTION UNDER CONSTRUCTION)</h2>
+			<p>I should get into what these "sync flags" are all about. From what I can tell, they appear to be there to prevent re-transmitted packets from being interpreted as new messages. Each time a new packet is sent (as opposed to a re-transmitted packet) one of the flags will be toggled: the master flag whenever the panel sends a packet, and the slave flag whenever another device does. Each device, in addition to flipping its own sync bit, expects the other one to be flipped as well, and will not expect a packet unless its sync bits are correct. This way, if a packet is received multiple times, the first one it receives will be accepted, but the other ones will be ignored as their flags will then be incorrect. This is important because IntelliBus does not use a very sophisticated method for ensuring packets are received; there are generally no ACK replies like in TCP. As such, packets are often intentionally sent several times in succession.</p>
+			<p>The best way to understand it, in my opinion, is by example. Read from left to right; <span class="not-present-hl">backgroundless</span> cells mean the status of the bit in question isn't reported in that packet, and <span class="bit-change-hl">highlighted</span> cells mean the bit is not only reported, but it changed.</p>
+			<center>
+				<div class="table-container" style="text-align:center;">
+					<table class="sync-example">
+						<thead>
+							<tr><th colspan="2">Packet Type</th><td>Ping</td><td>Ping</td><td>Reply</td><td>Reply</td><td>Msg</td><td>Msg</td><td>Msg</td><td>Msg</td><td>Msg</td><td>Msg</td><td>Msg</td><td>Msg</td><td>Msg</td><td>Ping</td><td>Reply</td><td>Msg</td><td>Msg</td><td>Msg</td><td>Msg</td><td>Msg</td></tr>
+							<tr><th colspan="2">Source Address</th><td>0</td><td>0</td><td>1</td><td>2</td><td>1</td><td>2</td><td>1</td><td>0</td><td>0</td><td>0</td><td>0</td><td>2</td><td>1</td><td>0</td><td>2</td><td>2</td><td>2</td><td>0</td><td>1</td><td>0</td></tr>
+							<tr><th colspan="2">Destination Address</th><td>1</td><td>2</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>1</td><td>1</td><td>1</td><td>2</td><td>0</td><td>0</td><td>2</td><td>0</td><td>0</td><td>0</td><td>2</td><td>0</td><td>1</td></tr>
+						</thead><tbody>
+							<tr><th rowspan="2">Device 1</th><th>Master Sync Flag</th><td class="not-present-hl">?</td><td class="not-present-hl">?</td><td>0</td><td class="not-present-hl">0</td><td>0</td><td class="not-present-hl">0</td><td>0</td><td class="bit-change-hl">1</td><td class="bit-change-hl">0</td><td class="bit-change-hl">1</td><td class="not-present-hl">1</td><td class="not-present-hl">1</td><td>1</td><td class="not-present-hl">1</td><td class="not-present-hl">1</td><td class="not-present-hl">1</td><td class="not-present-hl">1</td><td class="not-present-hl">1</td><td>1</td><td class="bit-change-hl">0</td></tr>
+							<tr><th>Slave Sync Flag</th></tr>
+							<tr><th rowspan="2">Device 2</th><th>Master Sync Flag<td class="not-present-hl">?</td><td class="not-present-hl">?</td><td class="not-present-hl">?</td><td>0</td><td class="not-present-hl">0</td><td>0</td><td class="not-present-hl">0</td><td class="not-present-hl">0</td><td class="not-present-hl">0</td><td class="not-present-hl">0</td><td class="bit-change-hl">1</td><td>1</td><td class="not-present-hl">1</td><td class="not-present-hl">1</td><td>1</td><td>1</td><td>1</td><td class="bit-change-hl">0</td><td class="not-present-hl">0</td><td class="not-present-hl">0</td></tr>
+							<tr><th>Slave Sync Flag</th></tr>
+						</tbody>
+					</table>
+				</div>
+			</center>
+			<p>One more thing: as you may have noticed, the sync ping packet contains an extra byte. This is related to broadcast packets. Being sent to multiple devices, broadcast packets won't really work with the per-device sync flags. Therefore, only one address in the broadcast range (0x7000-0x70FF) is active at a time. It increments with each broadcast packet sent, and every time the panel sends out a sync ping it reports the low byte (e.g. the 2A in 0x702A) of the active address.</p>
+		</aside>
+		
+		<h2>Learning Devices</h2>
+		<figure style="float:right">
+			<figcaption>Message ID's related to device discovery</figcaption>
+			<table>
+				<thead>
+					<tr><th rowspan="2">ID</th><th rowspan="2" style="width:12em">Description</th><th colspan="2">Arguments</th><th rowspan="2">Direction</tr>
+					<tr><th># Bytes</th><th>Meaning</th></tr>
+				</thead><tbody>
+					<tr><td>0xBBC</td><td>"Learning new devices; anyone need an address?"</td><td colspan="2">(None)</td><td>Panel → Dev</td></tr>
+					<tr><td rowspan="5">0xBB9</td><td rowspan="5">"Okay, I'm ____ and I need an address!"</td><td>2</td><td>Seems to always be 01 00</td><td rowspan="5">Dev → Panel</td></tr>
+					<tr><td>2</td><td>Model number of the device (e.g. 3121)</td></tr>
+					<tr><td>2</td><td>Device class identifier (what kind of device)</td></tr>
+					<tr><td>2</td><td>Hardware configuration bytes</td></tr>
+					<tr><td>2</td><td>Firmware version</td></tr>
+					<tr><td rowspan="2">0xBBA</td><td rowspan="2">"Alright ____, you take address __."</td><td>6</td><td>Target device serial number</td><td rowspan="2">Panel → Dev</td></tr>
+					<tr><td>2</td><td>New device address</td></tr>
+					<tr><td rowspan="2">0xBBB</td><td rowspan="2">"Got it, I'm ____, address __ now."</td><td>6</td><td>Serial number</td><td rowspan="2">Dev → Panel</td></tr>
+					<tr><td>2</td><td>New device address</td></tr>
+				</tbody>
+			</table>
+		</figure>
+		<p>IntelliBus supports "plug-and-play" functionality, in that devices are automatically assigned an address. But it isn't quite like USB, where you can plug in a new device and have it (hopefully) start functioning right away. Until it is instructed to "Learn Devices" via the programmer, the panel will only communicate with devices it already knows about. Devices of the same type aren't interchangeable either; it needs to be the specific one the panel knows about, based on its serial number. (The programmer is the exception, having a fixed serial number of FFFFFFFF or something.)</p>
+	</main>
+</body>
+</html>
