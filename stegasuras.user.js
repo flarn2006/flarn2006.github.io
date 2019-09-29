@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name     STEGASURAS Improvements
-// @version  2
+// @version  2.1
 // @grant    none
 // @include  https://steganography.live/
 // @include  https://steganography.live/encrypt
@@ -58,6 +58,17 @@ $(document).ready(function() {
 	for (var n = 6; n <= 16; n += 2) {
 		add_option(select, n, false);
 	}
+	
+	
+	// Add Clear button to LM Context
+	
+	var lm_clearbtn = document.createElement('button');
+	lm_clearbtn.innerText = 'Clear';
+	lm_clearbtn.onclick = function() {
+		document.getElementById('context').value = '';
+		return false;
+	};
+	$(lm_clearbtn).insertAfter('label[for="context"]');
 	
 	
 	// Add extra buttons to Secret Message
