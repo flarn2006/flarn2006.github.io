@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name     STEGASURAS Improvements
-// @version  2.2
+// @version  2.2.1
 // @grant    none
 // @include  https://steganography.live/
 // @include  https://steganography.live/encrypt
@@ -77,6 +77,7 @@ $(document).ready(function() {
 		lm_usecoverbtn.onclick = function() {
 			$('textarea[name="context"]').val(cover_text.val());
 		}
+		$(lm_usecoverbtn).insertAfter(lm_clearbtn);
 	}
 		
 	
