@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name     STEGASURAS Improvements
-// @version  2.2.1
+// @version  2.2.2
 // @grant    none
 // @include  https://steganography.live/
 // @include  https://steganography.live/encrypt
@@ -20,6 +20,9 @@ function add_option(sel, n, first)
 }
 
 $(document).ready(function() {
+	if (document.getElementById('lm_clearbtn')) {
+		return;
+	}
 	
 	// Disable form validation + "Please Wait..."
 	
@@ -60,25 +63,16 @@ $(document).ready(function() {
 	}
 	
 	
-	// Add extra buttons to LM Context
+	// Add Clear button to LM Context
 	
 	var lm_clearbtn = document.createElement('button');
+	lm_clearbtn.id = 'lm_clearbtn';
 	lm_clearbtn.innerText = 'Clear';
 	lm_clearbtn.onclick = function() {
 		document.getElementById('context').value = '';
 		return false;
 	};
 	$(lm_clearbtn).insertAfter('label[for="context"]');
-	
-	var lm_usecoverbtn = document.createElement('button');
-	var cover_text = $('textarea[name="cover_text"]');
-	if (cover_text) {
-		lm_usecoverbtn.innerText = 'Use Cover Text';
-		lm_usecoverbtn.onclick = function() {
-			$('textarea[name="context"]').val(cover_text.val());
-		}
-		$(lm_usecoverbtn).insertAfter(lm_clearbtn);
-	}
 		
 	
 	// Add extra buttons to Secret Message
@@ -121,6 +115,7 @@ $(document).ready(function() {
 	
 	// Add "Prepend LM Context" button
 	
+	var cover_text = $('textarea[name="cover_text"]');
 	if (cover_text) {
 		var prependbtn = document.createElement('button');
 		prependbtn.innerText = 'Prepend LM Context';
@@ -129,6 +124,19 @@ $(document).ready(function() {
 			if (!cover_text.val().startsWith(lmctx)) {
 				cover_text.val(lmctx + cover_text.val());
 			}
+			
+			if (!document.getElementById('lm_usecoverbtn')) {
+				var lm_usecoverbtn = document.createElement('button');
+				lm_usecoverbtn.id = 'lm_usecoverbtn'
+				lm_usecoverbtn.innerText = 'Use Cover Text';
+				lm_usecoverbtn.onclick = function() {
+					$('textarea[name="context"]').val(cover_text.val());
+					return false;
+				};
+				$(lm_usecoverbtn).insertAfter('#lm_clearbtn');
+			}
+			
+			return false;
 		};
 		$(prependbtn).insertAfter('label[for="cover_text"]');
 	}
