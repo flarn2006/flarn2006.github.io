@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name     STEGASURAS Improvements
-// @version  2.1
+// @version  2.2
 // @grant    none
 // @include  https://steganography.live/
 // @include  https://steganography.live/encrypt
@@ -60,7 +60,7 @@ $(document).ready(function() {
 	}
 	
 	
-	// Add Clear button to LM Context
+	// Add extra buttons to LM Context
 	
 	var lm_clearbtn = document.createElement('button');
 	lm_clearbtn.innerText = 'Clear';
@@ -70,6 +70,15 @@ $(document).ready(function() {
 	};
 	$(lm_clearbtn).insertAfter('label[for="context"]');
 	
+	var lm_usecoverbtn = document.createElement('button');
+	var cover_text = $('textarea[name="cover_text"]');
+	if (cover_text) {
+		lm_usecoverbtn.innerText = 'Use Cover Text';
+		lm_usecoverbtn.onclick = function() {
+			$('textarea[name="context"]').val(cover_text.val());
+		}
+	}
+		
 	
 	// Add extra buttons to Secret Message
 	
@@ -107,4 +116,19 @@ $(document).ready(function() {
 	};
 	
 	$(delbtn).insertAfter($(randbtn).insertAfter($(clearbtn).insertAfter('label[for="message_text"]')));
+	
+	
+	// Add "Prepend LM Context" button
+	
+	if (cover_text) {
+		var prependbtn = document.createElement('button');
+		prependbtn.innerText = 'Prepend LM Context';
+		prependbtn.onclick = function() {
+			var lmctx = $('textarea[name="context"]').val();
+			if (!cover_text.val().startsWith(lmctx)) {
+				cover_text.val(lmctx + cover_text.val());
+			}
+		};
+		$(prependbtn).insertAfter('label[for="cover_text"]');
+	}
 });
